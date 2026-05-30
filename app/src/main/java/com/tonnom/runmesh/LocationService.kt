@@ -1,9 +1,27 @@
 package com.tonnom.runmesh.data
 
 import android.content.Context
-import androidx.room.Database
-import androidx.room.Room
-import androidx.room.RoomDatabase
+import androidx.room.*
+import kotlinx.coroutines.flow.Flow
+
+@Entity(tableName = "location_points")
+data class LocationPoint(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val latitude: Double,
+    val longitude: Double,
+    val altitude: Double,
+    val timestamp: Long
+)
+
+@Dao
+interface TrackingDao {
+    @Insert
+    suspend fun insertPoint(point: LocationPoint)
+
+    // Permet d'écouter les logs en temps réel, du plus récent au plus ancien
+    @Query("SELECT * FROM location_points ORDER BY timestamp DESC")
+    fun getAllLogs(): Flow<List<LocationPoint>>
+}
 
 @Database(entities = [LocationPoint::class], version = 3, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {

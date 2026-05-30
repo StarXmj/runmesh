@@ -9,16 +9,27 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Button
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.tonnom.runmesh.data.AppDatabase
 import com.tonnom.runmesh.ui.theme.RunMeshTheme
+import dagger.hilt.android.AndroidEntryPoint
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
+@AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -26,7 +37,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             RunMeshTheme {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    TrackingScreen(modifier = Modifier.padding(innerPadding))
+                    LogScreen(modifier = Modifier.padding(innerPadding))
                 }
             }
         }
@@ -34,79 +45,64 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun TrackingScreen(modifier: Modifier = Modifier) {
+fun LogScreen(modifier: Modifier = Modifier) {
     val context = LocalContext.current
     var hasPermissions by remember { mutableStateOf(false) }
 
-    // 1. Déclaration du contrat pour demander de multiples permissions
+    // On écoute la Base de données en temps réel !
+    val db = remember { AppDatabase.getDatabase(context) }
+    val logs by db.trackingDao().getAllLogs().collectAsState(initial = emptyList())
+
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
         onResult = { permissions ->
-            // On vérifie si la localisation précise OU approximative est accordée
-            val locationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true || 
-                                  permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-            hasPermissions = locationGranted
+            hasPermissions = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
+            
+            // Si on a le GPS, on lance le service en fond DIRECTEMENT
+            if (hasPermissions) {
+                val intent = Intent(context, LocationService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }
         }
     )
 
-    // 2. Demande automatique des permissions au lancement de l'écran
     LaunchedEffect(Unit) {
         val permissionsToRequest = mutableListOf(
-            Manifest.permission.ACCESS_COARSE_LOCATION,
             Manifest.permission.ACCESS_FINE_LOCATION
         )
-        // Depuis Android 13 (API 33), il faut demander l'autorisation pour la notification du Foreground Service
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
         }
         permissionLauncher.launch(permissionsToRequest.toTypedArray())
     }
 
-    // 3. Interface Utilisateur
-    Column(
-        modifier = modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
+    Column(modifier = modifier.fillMaxSize().padding(16.dp)) {
         if (!hasPermissions) {
-            Text("Les permissions GPS sont requises pour tracker votre course.")
-            Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = {
-                val permissionsToRequest = mutableListOf(
-                    Manifest.permission.ACCESS_COARSE_LOCATION,
-                    Manifest.permission.ACCESS_FINE_LOCATION
-                )
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS)
-                }
-                permissionLauncher.launch(permissionsToRequest.toTypedArray())
-            }) {
-                Text("Autoriser le GPS")
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("En attente des permissions GPS...")
             }
         } else {
-            Button(onClick = {
-                val intent = Intent(context, LocationService::class.java).apply {
-                    action = "START"
+            // En-tête
+            Text(text = "📡 Logger GPS Actif (Filtre > 2m)", fontSize = 18.sp, modifier = Modifier.padding(bottom = 4.dp))
+            Text(text = "Points enregistrés : ${logs.size}", fontSize = 14.sp, color = Color.Gray, modifier = Modifier.padding(bottom = 16.dp))
+            
+            // La liste de type "Log"
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(logs) { point ->
+                    val timeString = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(point.timestamp))
+                    
+                    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+                        Text(text = "[$timeString]", fontFamily = FontFamily.Monospace, fontSize = 12.sp, color = Color.Blue)
+                        Text(text = "Lat: ${point.latitude}", fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+                        Text(text = "Lon: ${point.longitude}", fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+                        Text(text = "Alt: ${point.altitude}m", fontFamily = FontFamily.Monospace, fontSize = 14.sp)
+                    }
+                    HorizontalDivider()
                 }
-                // ⚠️ CRITIQUE : Depuis Android 8.0, un Foreground Service DOIT être lancé via startForegroundService
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(intent)
-                } else {
-                    context.startService(intent)
-                }
-            }) {
-                Text("Démarrer la course")
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Button(onClick = {
-                val intent = Intent(context, LocationService::class.java).apply {
-                    action = "STOP"
-                }
-                context.startService(intent)
-            }) {
-                Text("Arrêter la course")
             }
         }
     }
