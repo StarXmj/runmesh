@@ -52,7 +52,7 @@ class LocationService : Service(), LocationListener {
             // Mise à jour si : temps > 2000 ms ET distance > 2 mètres
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER,
-                2000L,
+                500L,
                 2f,
                 this
             )
