@@ -9,5 +9,8 @@ data class LocationPoint(
     val latitude: Double,
     val longitude: Double,
     val altitude: Double,
+    val speed: Float,      // Nouvelle statistique : vitesse (m/s)
+    val accuracy: Float,   // Nouvelle statistique : précision du point (m)
+    val isEstimated: Boolean, // Indique si le point vient de la fusion des capteurs
     val timestamp: Long
 )
